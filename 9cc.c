@@ -25,6 +25,9 @@ struct Token {
 //現在着目しているトークン
 Token *token;
 
+//　入力プログラム
+char *user_input;
+
 // エラー報告のための関数
 // printfと同じ引数をとる
 void error(char *fmt, ...) {
@@ -35,17 +38,30 @@ void error(char *fmt, ...) {
   exit(1);
 }
 
+void error_at(char *loc, char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+
+  int pos = loc - user_input;
+  fprintf(stderr, "%s\n", user_input);
+  fprintf(stderr, "%*s", pos, "");
+  fprintf(stderr, "^ ");
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+  exit(1);
+}
+
 bool consume(char op) {
   if (token->kind != TK_RESERVED || token->str[0] != op) {
     return false;
   }
   token = token->next;
-  return token;
+  return true;
 }
 
 void expect(char op) {
   if (token->kind != TK_RESERVED || token->str[0] != op) {
-    error("'%c'ではありません", op);
+    error_at(token->str, "'%c'ではありません", op);
   }
   token = token->next;
 }
@@ -54,7 +70,7 @@ void expect(char op) {
 // それ以外の場合にはエラーを報告する。
 int expect_number(void) {
   if (token->kind != TK_NUM)
-    error("数ではありません");
+    error_at(token->str, "数ではありません");
   int val = token->val;
   token = token->next;
   return val;
@@ -74,7 +90,8 @@ Token *new_token(TokenKind kind, Token *cur, char *str) {
 }
 
 // 入力文字列pをトークナイズしてそれを返す
-Token *tokenize(char *p) {
+Token *tokenize(void) {
+  char *p = user_input;
   Token head;
   head.next = NULL;
   Token *cur = &head;
@@ -97,7 +114,7 @@ Token *tokenize(char *p) {
       continue;
     }
 
-    error("トークナイズできません");
+    error_at(p, "トークナイズできません");
   }
   new_token(TK_EOF, cur, p);
   return head.next;
@@ -105,28 +122,29 @@ Token *tokenize(char *p) {
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    fprintf(stderr, "引数の個数が正しくありません\n");
+    error("%s: invalid number of arguments", argv[0]);
     return 1;
   }
 
-  token = tokenize(argv[1]);
+  user_input = argv[1];
+  token = tokenize();
 
   printf(".intel_syntax noprefix\n");
   printf(".globl main\n");
   printf("main:\n");
 
   // 式の最初は数でなければならないので、それをチェックして最初のmov命令を出力
-  printf("  mov rax, %ld\n", expect_number());
+  printf("  mov rax, %d\n", expect_number());
 
   // + <数> or - <数> というトークンの並びを消費しつつアセンブリを出力
   while(!at_eof()) {
     if (consume('+')) {
-      printf("  add rax, %ld\n", expect_number());
+      printf("  add rax, %d\n", expect_number());
       continue;
     }
 
     expect('-');
-    printf("  sub rax, %ld\n", expect_number());
+    printf("  sub rax, %d\n", expect_number());
   }
 
   printf("  ret\n");
